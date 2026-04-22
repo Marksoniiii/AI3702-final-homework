@@ -1,0 +1,11 @@
+
+<launch>
+    <arg name="dd" default="0.25"/>
+
+    <param name="dilation_distance" value="$(arg dd)"/>
+    <node pkg="astar_pa" type="astar_pa" name="astar_main_node" output="screen">
+    </node>
+
+
+
+</launch>

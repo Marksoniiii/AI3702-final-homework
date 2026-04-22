@@ -1,0 +1,39 @@
+
+<launch>
+    <arg name="s_x" default="0.000012"/>
+    <arg name="s_y" default="-3.499981"/>
+    <arg name="s_z" default="0.0"/>
+
+    <arg name="s_or" default="-0.000004"/>
+    <arg name="s_oy" default="0.003170"/>
+    <arg name="s_op" default="0.0"/>
+
+    <arg name="t_x" default="0.1"/>
+    <arg name="t_y" default="-3.6"/>
+    <arg name="t_z" default="-0.001006"/>
+
+    <arg name="t_or" default="0.0"/>
+    <arg name="t_oy" default="0.0"/>
+    <arg name="t_op" default="0.0"/>
+
+    <param name="source_x" value="$(arg s_x)"/>
+    <param name="source_y" value="$(arg s_y)"/>
+    <param name="source_z" value="$(arg s_z)"/>
+    <param name="source_or" value="$(arg s_or)"/>
+    <param name="source_oy" value="$(arg s_oy)"/>
+    <param name="source_op" value="$(arg s_op)"/>
+
+    <param name="target_x" value="$(arg t_x)"/>
+    <param name="target_y" value="$(arg t_y)"/>
+    <param name="target_z" value="$(arg t_z)"/>
+    <param name="target_or" value="$(arg t_or)"/>
+    <param name="target_oy" value="$(arg t_oy)"/>
+    <param name="target_op" value="$(arg t_op)"/>
+
+    <node pkg="astar_pa" type="astar_pa_pub_node" name="pub_source" output="screen">
+
+    </node>
+    <node pkg="astar_pa" type="astar_pa_pub_node2" name="pub_target" output="screen">
+    </node>
+
+</launch>

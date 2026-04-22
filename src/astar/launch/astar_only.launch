@@ -1,0 +1,31 @@
+
+<launch>
+    <arg name="dilation_distance" default="0.25"/>
+    <arg name="preferred_clearance" default="0.26"/>
+    <arg name="inflated_cell_penalty" default="8.0"/>
+    <arg name="clearance_penalty_weight" default="1.4"/>
+    <arg name="occupied_threshold" default="65"/>
+    <arg name="use_tf_start" default="false"/>
+    <arg name="manual_start_fallback" default="true"/>
+    <arg name="start_topic" default="/initialpose"/>
+    <arg name="goal_topic" default="/move_base_simple/goal"/>
+    <arg name="path_topic" default="move_base/NavfnROS/nav_path"/>
+    <arg name="robot_frame" default="base_link"/>
+    <arg name="global_frame" default="map"/>
+
+    <node pkg="astar" type="astar" name="astar" output="screen">
+        <param name="dilation_distance" value="$(arg dilation_distance)"/>
+        <param name="preferred_clearance" value="$(arg preferred_clearance)"/>
+        <param name="inflated_cell_penalty" value="$(arg inflated_cell_penalty)"/>
+        <param name="clearance_penalty_weight" value="$(arg clearance_penalty_weight)"/>
+        <param name="occupied_threshold" value="$(arg occupied_threshold)"/>
+        <param name="use_tf_start" value="$(arg use_tf_start)"/>
+        <param name="manual_start_fallback" value="$(arg manual_start_fallback)"/>
+        <param name="start_topic" value="$(arg start_topic)"/>
+        <param name="goal_topic" value="$(arg goal_topic)"/>
+        <param name="path_topic" value="$(arg path_topic)"/>
+        <param name="robot_frame" value="$(arg robot_frame)"/>
+        <param name="global_frame" value="$(arg global_frame)"/>
+    </node>
+
+</launch>

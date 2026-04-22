@@ -6,9 +6,11 @@
 
     ################ start astar node ################
     <node pkg="astar" type="astar" name="astar" output="screen">
-        <param name="Euclidean" value="true"/>
-        <param name="OccupyThresh" value="-1"/>
-        <param name="InflateRadius" value="0.25"/>
+        <param name="AllowDiagonal" value="true"/>
+        <param name="UseChebyshev" value="true"/>
+        <param name="OccupyThresh" value="50"/>
+        <param name="InflateRadius" value="0.15"/>
+        <param name="EnablePathSimplify" value="true"/>
         <param name="rate" value="10"/>
     </node>
 

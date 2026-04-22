@@ -1,97 +1,95 @@
-//
-// Created by lihao on 19-7-9.
-//
-
 #ifndef ASTAR_H
 #define ASTAR_H
 
-#include <iostream>
-#include <queue>
-#include <unordered_map>
 #include <opencv2/opencv.hpp>
+#include <queue>
+#include <utility>
+#include <vector>
 
-using namespace std;
-using namespace cv;
+namespace pathplanning {
 
+struct AstarConfig {
+    bool allow_diagonal;
+    bool use_chebyshev;
+    int occupy_thresh;
+    int inflate_radius;
+    bool enable_path_simplify;
 
-namespace pathplanning{
-
-enum NodeType{
-    obstacle = 0,
-    free,
-    inOpenList,
-    inCloseList
+    AstarConfig(bool allow_diagonal_ = true, bool use_chebyshev_ = true,
+                int occupy_thresh_ = 50, int inflate_radius_ = 0,
+                bool enable_path_simplify_ = true)
+        : allow_diagonal(allow_diagonal_),
+          use_chebyshev(use_chebyshev_),
+          occupy_thresh(occupy_thresh_),
+          inflate_radius(inflate_radius_),
+          enable_path_simplify(enable_path_simplify_) {}
 };
 
-struct Node{
-    Point point;  // node coordinate
-    int F, G, H;  // cost
-    Node* parent; // parent node
-
-    Node(Point _point = Point(0, 0)):point(_point), F(0), G(0), H(0), parent(NULL)
-    {
-    }
-};
-
-struct cmp
-{
-    bool operator() (pair<int, Point> a, pair<int, Point> b) // Comparison function for priority queue
-    {
-        return a.first > b.first; // min heap
-    }
-};
-
-
-struct AstarConfig{
-    bool Euclidean;         // true/false
-    int OccupyThresh;       // 0~255
-    int InflateRadius;      // integer
-
-    AstarConfig(bool _Euclidean = true, int _OccupyThresh = -1, int _InflateRadius = -1):
-        Euclidean(_Euclidean), OccupyThresh(_OccupyThresh), InflateRadius(_InflateRadius)
-    {
-    }
-};
-
-class Astar{
-
+class Astar {
 public:
-    // Interface function
-    void InitAstar(Mat& _Map, AstarConfig _config = AstarConfig());
-    void InitAstar(Mat& _Map, Mat& Mask, AstarConfig _config = AstarConfig());
-    void PathPlanning(Point _startPoint, Point _targetPoint, vector<Point>& path);
-    void DrawPath(Mat& _Map, vector<Point>& path, InputArray Mask = noArray(), Scalar color = Scalar(0, 0, 255),
-            int thickness = 1, Scalar maskcolor = Scalar(255, 255, 255));
-
-    inline int point2index(Point point) {
-        return point.y * Map.cols + point.x;
-    }
-    inline Point index2point(int index) {
-        return Point(int(index / Map.cols), index % Map.cols);
-    }
+    void InitAstar(const cv::Mat& map, AstarConfig config = AstarConfig());
+    void InitAstar(const cv::Mat& map, cv::Mat& mask, AstarConfig config = AstarConfig());
+    bool PathPlanning(const cv::Point& start_point, const cv::Point& target_point,
+                      std::vector<cv::Point>& path);
+    int GetLastGridSteps() const;
+    void DrawPath(cv::Mat& map, const std::vector<cv::Point>& path,
+                  cv::InputArray mask = cv::noArray(),
+                  cv::Scalar color = cv::Scalar(0, 0, 255), int thickness = 1,
+                  cv::Scalar mask_color = cv::Scalar(255, 255, 255));
 
 private:
-    void MapProcess(Mat& Mask);
-    Node* FindPath();
-    void GetPath(Node* TailNode, vector<Point>& path);
+    static constexpr int kInfCost = 1000000000;
 
-private:
-    //Object
-    Mat Map;
-    Point startPoint, targetPoint;
-    Mat neighbor;
+    struct SearchNode {
+        int step_cost;
+        int geometry_cost;
+        int turn_cost;
+        int parent;
+        bool closed;
 
-    Mat LabelMap;
-    AstarConfig config;
+        SearchNode()
+            : step_cost(kInfCost),
+              geometry_cost(kInfCost),
+              turn_cost(kInfCost),
+              parent(-1),
+              closed(false) {}
+    };
 
-    priority_queue<pair<int, Point>, vector<pair<int, Point>>, cmp> OpenList; // open list
-    unordered_map<int, Node*> OpenDict; // open dict
-    vector<Node*> PathList;  // path list
+    struct QueueNode {
+        int f_step_cost;
+        int h_step_cost;
+        int geometry_cost;
+        int turn_cost;
+        int line_bias;
+        int index;
+
+        bool operator>(const QueueNode& other) const;
+    };
+
+    void MapProcess(cv::Mat& mask);
+    bool IsInside(const cv::Point& point) const;
+    bool IsFree(const cv::Point& point) const;
+    int PointToIndex(const cv::Point& point) const;
+    cv::Point IndexToPoint(int index) const;
+    int StepHeuristic(const cv::Point& point) const;
+    int LineBias(const cv::Point& point) const;
+    int GeometryMoveCost(const cv::Point& from, const cv::Point& to) const;
+    int TurnPenalty(int parent_index, const cv::Point& current_point,
+                    const cv::Point& next_point) const;
+    bool ReconstructPath(int target_index, std::vector<cv::Point>& path) const;
+    bool HasLineOfSight(const cv::Point& start_point, const cv::Point& end_point) const;
+    void SimplifyPath(std::vector<cv::Point>& path) const;
+
+    cv::Mat raw_map_;
+    cv::Mat free_map_;
+    cv::Point start_point_;
+    cv::Point target_point_;
+    std::vector<cv::Point> neighbors_;
+    std::vector<SearchNode> search_nodes_;
+    AstarConfig config_;
+    int last_grid_steps_ = 0;
 };
 
-}
+}  // namespace pathplanning
 
-
-
-
-#endif //ASTAR_H
+#endif  // ASTAR_H

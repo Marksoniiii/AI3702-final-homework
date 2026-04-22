@@ -1,209 +1,192 @@
-#include <iostream>
 #include <ros/ros.h>
+
+#include <algorithm>
+#include <cmath>
+#include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <nav_msgs/Path.h>
-#include <geometry_msgs/PoseWithCovarianceStamped.h>
-#include <geometry_msgs/PoseStamped.h>
-#include <geometry_msgs/Quaternion.h>
 #include <opencv2/opencv.hpp>
+
 #include "Astar.h"
 #include "OccMapTransform.h"
 
+using cv::Mat;
+using cv::Point;
+using cv::Point2d;
 
-using namespace cv;
-using namespace std;
+namespace {
 
-
-//-------------------------------- Global variables ---------------------------------//
-// Subscriber
 ros::Subscriber map_sub;
-ros::Subscriber startPoint_sub;
-ros::Subscriber targetPoint_sub;
-// Publisher
+ros::Subscriber start_point_sub;
+ros::Subscriber target_point_sub;
 ros::Publisher mask_pub;
 ros::Publisher path_pub;
 
-// Object
-nav_msgs::OccupancyGrid OccGridMask;
-nav_msgs::Path path;
-pathplanning::AstarConfig config;
+nav_msgs::OccupancyGrid inflated_mask_msg;
+nav_msgs::Path path_msg;
+pathplanning::AstarConfig planner_config;
 pathplanning::Astar astar;
-OccupancyGridParam OccGridParam;
-Point startPoint, targetPoint;
+OccupancyGridParam occ_grid_param;
 
-// Parameter
-double InflateRadius;
-bool map_flag;
-bool startpoint_flag;
-bool targetpoint_flag;
-bool start_flag;
-int rate;
+Point start_point;
+Point target_point;
 
-//-------------------------------- Callback function ---------------------------------//
-void MapCallback(const nav_msgs::OccupancyGrid& msg)
-{
-    // Get parameter
-    OccGridParam.GetOccupancyGridParam(msg);
+bool map_ready = false;
+bool start_ready = false;
+bool target_ready = false;
+bool planning_requested = false;
+int loop_rate_hz = 10;
+double inflate_radius_meter = 0.15;
 
-    // Get map
-    int height = OccGridParam.height;
-    int width = OccGridParam.width;
-    int OccProb;
-    Mat Map(height, width, CV_8UC1);
-    for(int i=0;i<height;i++)
-    {
-        for(int j=0;j<width;j++)
-        {
-            OccProb = msg.data[i * width + j];
-            OccProb = (OccProb < 0) ? 100 : OccProb; // set Unknown to 0
-            // The origin of the OccGrid is on the bottom left corner of the map
-            Map.at<uchar>(height-i-1, j) = 255 - round(OccProb * 255.0 / 100.0);
+bool IsPointInsideMap(const Point& point) {
+    return point.x >= 0 && point.x < occ_grid_param.width && point.y >= 0 &&
+           point.y < occ_grid_param.height;
+}
+
+void PublishMaskFromMat(const Mat& mask, const nav_msgs::OccupancyGrid& map_msg) {
+    inflated_mask_msg.header.stamp = ros::Time::now();
+    inflated_mask_msg.header.frame_id = "map";
+    inflated_mask_msg.info = map_msg.info;
+    inflated_mask_msg.data.assign(map_msg.info.width * map_msg.info.height, 0);
+
+    for (int row = 0; row < occ_grid_param.height; ++row) {
+        for (int col = 0; col < occ_grid_param.width; ++col) {
+            const int map_index = (occ_grid_param.height - 1 - row) * occ_grid_param.width + col;
+            inflated_mask_msg.data[map_index] = mask.at<unsigned char>(row, col) > 0 ? 100 : 0;
+        }
+    }
+}
+
+void MapCallback(const nav_msgs::OccupancyGrid& msg) {
+    occ_grid_param.GetOccupancyGridParam(msg);
+
+    Mat free_map(occ_grid_param.height, occ_grid_param.width, CV_8UC1, cv::Scalar(0));
+    for (int row = 0; row < occ_grid_param.height; ++row) {
+        for (int col = 0; col < occ_grid_param.width; ++col) {
+            const int map_index = (occ_grid_param.height - 1 - row) * occ_grid_param.width + col;
+            const int occ_value = msg.data[map_index];
+            free_map.at<unsigned char>(row, col) = (occ_value >= 0 && occ_value < 50) ? 255 : 0;
         }
     }
 
-    // Initial Astar
-    Mat Mask;
-    config.InflateRadius = round(InflateRadius / OccGridParam.resolution);
-    astar.InitAstar(Map, Mask, config);
+    planner_config.inflate_radius = std::max(
+        0, static_cast<int>(std::round(inflate_radius_meter / occ_grid_param.resolution)));
+    Mat inflated_mask;
+    astar.InitAstar(free_map, inflated_mask, planner_config);
+    PublishMaskFromMat(inflated_mask, msg);
 
-    // Publish Mask
-    OccGridMask.header.stamp = ros::Time::now();
-    OccGridMask.header.frame_id = "map";
-    OccGridMask.info = msg.info;
-    OccGridMask.data.clear();
-    for(int i=0;i<height;i++)
-    {
-        for(int j=0;j<width;j++)
-        {
-            OccProb = Mask.at<uchar>(height-i-1, j) * 255;
-            OccGridMask.data.push_back(OccProb);
-        }
-    }
-
-    // Set flag
-    map_flag = true;
-    startpoint_flag = false;
-    targetpoint_flag = false;
+    map_ready = true;
+    planning_requested = start_ready && target_ready;
 }
 
-void StartPointCallback(const geometry_msgs::PoseWithCovarianceStamped& msg)
-{
-    Point2d src_point = Point2d(msg.pose.pose.position.x, msg.pose.pose.position.y);
-    OccGridParam.Map2ImageTransform(src_point, startPoint);
-
-    // Set flag
-    startpoint_flag = true;
-    if(map_flag && startpoint_flag && targetpoint_flag)
-    {
-        start_flag = true;
+void StartPointCallback(const geometry_msgs::PoseWithCovarianceStamped& msg) {
+    if (!map_ready) {
+        ROS_WARN("Map has not been received yet, ignore start point.");
+        return;
     }
 
-//    ROS_INFO("startPoint: %f %f %d %d", msg.pose.pose.position.x, msg.pose.pose.position.y,
-//             startPoint.x, startPoint.y);
+    Point2d world_point(msg.pose.pose.position.x, msg.pose.pose.position.y);
+    occ_grid_param.Map2ImageTransform(world_point, start_point);
+    start_ready = IsPointInsideMap(start_point);
+    planning_requested = map_ready && start_ready && target_ready;
+
+    if (!start_ready) {
+        ROS_WARN("Start point is outside the map boundary.");
+    }
 }
 
-void TargetPointtCallback(const geometry_msgs::PoseStamped& msg)
-{
-    Point2d src_point = Point2d(msg.pose.position.x, msg.pose.position.y);
-    OccGridParam.Map2ImageTransform(src_point, targetPoint);
-
-    // Set flag
-    targetpoint_flag = true;
-    if(map_flag && startpoint_flag && targetpoint_flag)
-    {
-        start_flag = true;
+void TargetPointCallback(const geometry_msgs::PoseStamped& msg) {
+    if (!map_ready) {
+        ROS_WARN("Map has not been received yet, ignore target point.");
+        return;
     }
 
-//    ROS_INFO("targetPoint: %f %f %d %d", msg.pose.position.x, msg.pose.position.y,
-//             targetPoint.x, targetPoint.y);
+    Point2d world_point(msg.pose.position.x, msg.pose.position.y);
+    occ_grid_param.Map2ImageTransform(world_point, target_point);
+    target_ready = IsPointInsideMap(target_point);
+    planning_requested = map_ready && start_ready && target_ready;
+
+    if (!target_ready) {
+        ROS_WARN("Target point is outside the map boundary.");
+    }
 }
 
-//-------------------------------- Main function ---------------------------------//
-int main(int argc, char * argv[])
-{
-    //  Initial node
+void PublishPath(const std::vector<Point>& path_points) {
+    path_msg.header.stamp = ros::Time::now();
+    path_msg.header.frame_id = "map";
+    path_msg.poses.clear();
+
+    for (const Point& path_point : path_points) {
+        Point2d world_point;
+        Point point_copy = path_point;
+        occ_grid_param.Image2MapTransform(point_copy, world_point);
+
+        geometry_msgs::PoseStamped pose_stamped;
+        pose_stamped.header = path_msg.header;
+        pose_stamped.pose.position.x = world_point.x;
+        pose_stamped.pose.position.y = world_point.y;
+        pose_stamped.pose.position.z = 0.0;
+        pose_stamped.pose.orientation.w = 1.0;
+        path_msg.poses.push_back(pose_stamped);
+    }
+
+    path_pub.publish(path_msg);
+}
+
+}  // namespace
+
+int main(int argc, char* argv[]) {
     ros::init(argc, argv, "astar");
     ros::NodeHandle nh;
     ros::NodeHandle nh_priv("~");
-    ROS_INFO("Start astar node!\n");
 
-    // Initial variables
-    map_flag = false;
-    startpoint_flag = false;
-    targetpoint_flag = false;
-    start_flag = false;
+    nh_priv.param<bool>("AllowDiagonal", planner_config.allow_diagonal, true);
+    nh_priv.param<bool>("UseChebyshev", planner_config.use_chebyshev, true);
+    nh_priv.param<int>("OccupyThresh", planner_config.occupy_thresh, 50);
+    nh_priv.param<double>("InflateRadius", inflate_radius_meter, 0.15);
+    nh_priv.param<bool>("EnablePathSimplify", planner_config.enable_path_simplify, true);
+    nh_priv.param<int>("rate", loop_rate_hz, 10);
 
-    // Parameter
-    nh_priv.param<bool>("Euclidean", config.Euclidean, true);
-    nh_priv.param<int>("OccupyThresh", config.OccupyThresh, -1);
-    nh_priv.param<double>("InflateRadius", InflateRadius, -1);
-    nh_priv.param<int>("rate", rate, 10);
+    map_sub = nh.subscribe("map", 1, MapCallback);
+    start_point_sub = nh.subscribe("move_base/NavfnROS/Astar/initialpose", 1, StartPointCallback);
+    target_point_sub = nh.subscribe("move_base/NavfnROS/Astar/target", 1, TargetPointCallback);
 
-    // Subscribe topics
-    map_sub = nh.subscribe("map", 10, MapCallback);
-    startPoint_sub = nh.subscribe("move_base/NavfnROS/Astar/initialpose", 10, StartPointCallback);
-    targetPoint_sub = nh.subscribe("move_base/NavfnROS/Astar/target", 10, TargetPointtCallback);
+    mask_pub = nh.advertise<nav_msgs::OccupancyGrid>("mask", 1, true);
+    path_pub = nh.advertise<nav_msgs::Path>("move_base/NavfnROS/nav_path", 1, true);
 
-    // Advertise topics
-    mask_pub = nh.advertise<nav_msgs::OccupancyGrid>("mask", 1);
-    path_pub = nh.advertise<nav_msgs::Path>("move_base/NavfnROS/nav_path", 10);
+    ros::Rate loop_rate(loop_rate_hz);
+    while (ros::ok()) {
+        if (planning_requested && map_ready) {
+            std::vector<Point> planned_path;
+            const double start_time = ros::Time::now().toSec();
+            const bool success = astar.PathPlanning(start_point, target_point, planned_path);
 
-    
-    // Loop and wait for callback
-    ros::Rate loop_rate(rate);
-    while(ros::ok())
-    {
-        if(start_flag)
-        {
-            int distance_ = 0;
-            double start_time = ros::Time::now().toSec();
-            // Start planning path
-            vector<Point> PathList;
-            astar.PathPlanning(startPoint, targetPoint, PathList);
-            distance_ = PathList.size();
-            if(!PathList.empty())
-            {
-                path.header.stamp = ros::Time::now();
-                path.header.frame_id = "map";
-                path.poses.clear();
-                for(int i=0;i<PathList.size();i++)
-                {
-                    Point2d dst_point;
-                    Point2d dst_point_last;
-                    OccGridParam.Image2MapTransform(PathList[i], dst_point);
-                   
-                    geometry_msgs::PoseStamped pose_stamped;
-                    pose_stamped.header.stamp = ros::Time::now();
-                    pose_stamped.header.frame_id = "map";
-                    pose_stamped.pose.position.x = dst_point.x;
-                    pose_stamped.pose.position.y = dst_point.y;
-                    pose_stamped.pose.position.z = 0;
-		    pose_stamped.pose.orientation.w = 1.0;
-                    path.poses.push_back(pose_stamped);
-                }
-                path_pub.publish(path);
-                double end_time = ros::Time::now().toSec();
-
-                ROS_INFO("Find a valid path successfully! Use %f s, distance: %d ", end_time - start_time, distance_);
-            }
-            else
-            {
-                ROS_ERROR("Can not find a valid path");
+            if (success) {
+                PublishPath(planned_path);
+                const int steps = astar.GetLastGridSteps();
+                const double end_time = ros::Time::now().toSec();
+                ROS_INFO("Path found. Planning time: %.6f s, steps: %d, display points: %zu",
+                         end_time - start_time, steps, planned_path.size());
+            } else {
+                path_msg.header.stamp = ros::Time::now();
+                path_msg.header.frame_id = "map";
+                path_msg.poses.clear();
+                path_pub.publish(path_msg);
+                ROS_WARN("No valid path found between the selected start and target.");
             }
 
-            // Set flag
-            start_flag = false;
+            planning_requested = false;
         }
 
-        if(map_flag)
-        {
-            mask_pub.publish(OccGridMask);
+        if (map_ready) {
+            inflated_mask_msg.header.stamp = ros::Time::now();
+            mask_pub.publish(inflated_mask_msg);
         }
 
-        loop_rate.sleep();
         ros::spinOnce();
+        loop_rate.sleep();
     }
-
 
     return 0;
 }

@@ -1,11 +1,11 @@
-########### Cmake version requirement ###########
+########### 版本要求
 cmake_minimum_required(VERSION 2.8.3)
 set(CMAKE_CXX_STANDARD 14)
 
-########### Project name ###########
+########### 项目名称
 project(astar)
 
-########### Source of system lib ###########
+########### 添加系统库
 find_package(OpenCV REQUIRED)
 
 find_package(catkin REQUIRED COMPONENTS
@@ -18,12 +18,12 @@ find_package(catkin REQUIRED COMPONENTS
 
 catkin_package()
 
-########### include file ###########
+########### 添加头文件
 include_directories(
         include
         ${catkin_INCLUDE_DIRS}
 )
 
-########### Produce the executable ###########
-add_executable(${PROJECT_NAME} src/main.cpp )
+########### 编译可执行文件
+add_executable(${PROJECT_NAME} src/main.cpp src/Astar.cpp src/OccMapTransform.cpp)
 target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${OpenCV_LIBS})

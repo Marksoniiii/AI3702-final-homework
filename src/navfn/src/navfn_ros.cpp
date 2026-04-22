@@ -46,9 +46,6 @@ PLUGINLIB_EXPORT_CLASS(navfn::NavfnROS, nav_core::BaseGlobalPlanner)
 namespace navfn {
 
   std::vector<geometry_msgs::PoseStamped> plan_Astar;
-  ros::Time plan_Astar_stamp;
-  std::vector<geometry_msgs::PoseStamped> cached_plan_Astar;
-  ros::Time cached_plan_Astar_stamp;
   void plan_sub_callback(const nav_msgs::Path & msg );
 
   NavfnROS::NavfnROS() 
@@ -103,14 +100,11 @@ namespace navfn {
 
   void plan_sub_callback(const nav_msgs::Path & msg )
   {
-    plan_Astar.clear();
-    for(unsigned int i = 0; i < msg.poses.size(); i++)
+    int len = msg.poses.size();
+    for(int i = 0; i < len; i++)
     {
       plan_Astar.push_back(msg.poses[i]);
     }
-    plan_Astar_stamp = msg.header.stamp;
-    cached_plan_Astar = plan_Astar;
-    cached_plan_Astar_stamp = plan_Astar_stamp;
   }
 
   void NavfnROS::initialize(std::string name, costmap_2d::Costmap2DROS* costmap_ros){
@@ -235,8 +229,6 @@ namespace navfn {
     geometry_msgs::PoseWithCovarianceStamped Astar_start;
     Astar_start.pose.pose = start.pose;
 
-    ros::Time previous_plan_stamp = plan_Astar_stamp;
-    ros::Time request_time = ros::Time::now();
     star_pub.publish(Astar_start);
     target_pub.publish(goal);
 
@@ -319,28 +311,17 @@ namespace navfn {
       p.pose.position.y += resolution;
     }
 
-    ros::Time wait_start = ros::Time::now();
-    bool received_fresh_astar_plan = false;
-    while ((ros::Time::now() - wait_start).toSec() < 0.35) {
-      ros::spinOnce();
-      if (plan_Astar_stamp > previous_plan_stamp && plan_Astar_stamp >= request_time) {
-        received_fresh_astar_plan = true;
-        break;
-      }
-      ros::Duration(0.01).sleep();
-    }
+    ros::spinOnce();
 
     if(found_legal){
       //extract the plan
       if(getPlanFromPotential(best_pose, plan)){
-        if (received_fresh_astar_plan) {
-          plan = plan_Astar;
-        } else if (!cached_plan_Astar.empty()) {
-          plan = cached_plan_Astar;
-          ROS_WARN_THROTTLE(1.0, "Timed out waiting for a fresh A* plan, reusing the latest cached A* plan.");
-        } else {
-          ROS_WARN_THROTTLE(1.0, "Timed out waiting for a fresh A* plan, using Navfn potential plan.");
-        }
+        //make sure the goal we push on has the same timestamp as the rest of the plan
+        geometry_msgs::PoseStamped goal_copy = best_pose;
+        goal_copy.header.stamp = ros::Time::now();
+        //plan.push_back(goal_copy);
+        plan = plan_Astar;
+        plan_Astar.clear();
       }
       else{
         ROS_ERROR("Failed to get a plan from potential when a legal potential was found. This shouldn't happen.");

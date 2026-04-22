@@ -145,7 +145,6 @@ int main(int argc, char* argv[]) {
     nh_priv.param<bool>("UseChebyshev", planner_config.use_chebyshev, true);
     nh_priv.param<int>("OccupyThresh", planner_config.occupy_thresh, 50);
     nh_priv.param<double>("InflateRadius", inflate_radius_meter, 0.15);
-    nh_priv.param<bool>("EnablePathSimplify", planner_config.enable_path_simplify, true);
     nh_priv.param<int>("rate", loop_rate_hz, 10);
 
     map_sub = nh.subscribe("map", 1, MapCallback);
@@ -166,7 +165,7 @@ int main(int argc, char* argv[]) {
                 PublishPath(planned_path);
                 const int steps = astar.GetLastGridSteps();
                 const double end_time = ros::Time::now().toSec();
-                ROS_INFO("Path found. Planning time: %.6f s, steps: %d, display points: %zu",
+                ROS_INFO("Path found. Planning time: %.6f s, steps: %d, path points: %zu",
                          end_time - start_time, steps, planned_path.size());
             } else {
                 path_msg.header.stamp = ros::Time::now();

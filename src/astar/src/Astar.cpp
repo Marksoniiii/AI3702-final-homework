@@ -105,9 +105,6 @@ bool Astar::PathPlanning(const cv::Point& start_point, const cv::Point& target_p
                 return false;
             }
             last_grid_steps_ = std::max(0, static_cast<int>(path.size()) - 1);
-            if (config_.enable_path_simplify) {
-                SimplifyPath(path);
-            }
             return true;
         }
 
@@ -263,42 +260,6 @@ bool Astar::ReconstructPath(int target_index, std::vector<cv::Point>& path) cons
     }
     std::reverse(path.begin(), path.end());
     return !path.empty() && path.front() == start_point_ && path.back() == target_point_;
-}
-
-bool Astar::HasLineOfSight(const cv::Point& start_point, const cv::Point& end_point) const {
-    cv::LineIterator iterator(free_map_, start_point, end_point, 8);
-    for (int i = 0; i < iterator.count; ++i, ++iterator) {
-        const cv::Point point = iterator.pos();
-        if (!IsInside(point) || !IsFree(point)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-void Astar::SimplifyPath(std::vector<cv::Point>& path) const {
-    if (path.size() < 3) {
-        return;
-    }
-
-    std::vector<cv::Point> simplified_path;
-    simplified_path.push_back(path.front());
-
-    int anchor_index = 0;
-    while (anchor_index < static_cast<int>(path.size()) - 1) {
-        int furthest_index = anchor_index + 1;
-        for (int candidate_index = anchor_index + 2; candidate_index < static_cast<int>(path.size());
-             ++candidate_index) {
-            if (!HasLineOfSight(path[anchor_index], path[candidate_index])) {
-                break;
-            }
-            furthest_index = candidate_index;
-        }
-        simplified_path.push_back(path[furthest_index]);
-        anchor_index = furthest_index;
-    }
-
-    path.swap(simplified_path);
 }
 
 }  // namespace pathplanning

@@ -10,7 +10,6 @@
         <param name="UseChebyshev" value="true"/>
         <param name="OccupyThresh" value="50"/>
         <param name="InflateRadius" value="0.15"/>
-        <param name="EnablePathSimplify" value="true"/>
         <param name="rate" value="10"/>
     </node>
 

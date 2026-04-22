@@ -13,16 +13,13 @@ struct AstarConfig {
     bool use_chebyshev;
     int occupy_thresh;
     int inflate_radius;
-    bool enable_path_simplify;
 
     AstarConfig(bool allow_diagonal_ = true, bool use_chebyshev_ = true,
-                int occupy_thresh_ = 50, int inflate_radius_ = 0,
-                bool enable_path_simplify_ = true)
+                int occupy_thresh_ = 50, int inflate_radius_ = 0)
         : allow_diagonal(allow_diagonal_),
           use_chebyshev(use_chebyshev_),
           occupy_thresh(occupy_thresh_),
-          inflate_radius(inflate_radius_),
-          enable_path_simplify(enable_path_simplify_) {}
+          inflate_radius(inflate_radius_) {}
 };
 
 class Astar {
@@ -77,8 +74,6 @@ private:
     int TurnPenalty(int parent_index, const cv::Point& current_point,
                     const cv::Point& next_point) const;
     bool ReconstructPath(int target_index, std::vector<cv::Point>& path) const;
-    bool HasLineOfSight(const cv::Point& start_point, const cv::Point& end_point) const;
-    void SimplifyPath(std::vector<cv::Point>& path) const;
 
     cv::Mat raw_map_;
     cv::Mat free_map_;
